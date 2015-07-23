@@ -5,16 +5,18 @@ import difflib
 class DiffOp(object):
 	def __init__(self, t, a, b):
 		self.o, self.i1, self.i2, self.j1, self.j2 = t
-		self.size = self.j2 - self.j1 if self.o == 'insert' else self.i2 - self.i1
+		self.size = self.j2 - self.j1 if self.o in ('insert', 'move') else self.i2 - self.i1
 		self.a = a
 		self.b = b
 		self.children = []
+		self.can_move = True
 	
 	def __len__(self):
 		return self.size
 	
 	def __str__(self):
 		if self.o == 'insert': return self.b[self.j1:self.j2]
+		if self.o == 'move': return self.a[self.j1:self.j2]
 		else: return self.a[self.i1:self.i2]
 	
 	def __repr__(self):
@@ -23,7 +25,7 @@ class DiffOp(object):
 			t = self.a[self.i1-6:self.i1] + '[' + self.a[self.i1:self.i2] + ']' + self.a[self.i2:self.i2+6]
 		else:
 			t = self.__str__()
-		return 'Op(' + o + t.replace('\n', ' ').strip() + ')'
+		return 'Op(' + o + (t.replace('\n', ' ').strip() or '\w') + ')'
 	
 	def __getitem__(self, i):
 		if isinstance(i, slice):
@@ -36,16 +38,24 @@ class DiffOp(object):
 				return DiffOp((self.o, self.i1 + i[0], self.i1 + i[1], self.j1, self.j2), self.a, self.b)
 		return self.__str__()[i]
 	
-	def create_move(self):
+	def create_move(self, insert):
 		assert self.o == 'delete'
-		return DiffOp(('move', self.i1, self.i2, self.j1, self.j2), self.a, self.b)
+		return DiffOp(('move', insert.i1, insert.i2, self.i1, self.i2), self.a, self.b)
 
 class SmartDifferencer(object):
+	"""Behaves similarly to SequenceMatcher.get_opcodes but introduces
+	a 'move' op where (j1, j2) refer to an item in A to be inserted	at i1
+	
+	Usage:
+		diff = SmartDifferencer(a, b)
+		opcodes = diff.get_opcodes()
+	
+	"""
+
 	def __init__(self, a, b):
 		self.a = a
 		self.b = b
-		self.ops = self.get_codes(self.a, self.b)
-		self.insertions = [op for op in self.ops if op.o == 'insert']
+		self.ops = self._create_diffops(self.a, self.b)
 		
 		canary = 100
 		while self.bust_a_move(10):
@@ -53,10 +63,11 @@ class SmartDifferencer(object):
 			if canary < 0:
 				break
 	
-	def get_codes(self, a, b):
+	def _create_diffops(self, a, b):
 		ops = difflib.SequenceMatcher(None, a, b).get_opcodes()
 		r = []
 		for op in ops:
+			# a replace is considered a delet and an insert
 			if op[0] == 'replace':
 				r += [DiffOp(('delete',) + op[1:], a, b)]
 				op = ('insert',) + op[1:]
@@ -73,6 +84,30 @@ class SmartDifferencer(object):
 	def __repr__(self):
 		return '\n'.join(map(repr, self.all()))
 	
+	def get_opcodes(self, include_replace=True):
+		# the simple version
+		if not include_replace:
+			return [(op.o, op.i1, op.i2, op.j1, op.j2) for op in self.all()]
+		
+		ops = []
+		last = None
+		for op in self.all():
+			if last:
+				# all this complexity, just to provide 'replace'
+				if last.o == 'delete' and op.o == 'insert':
+					ops += [('replace', last.i1, last.i2, op.j1, op.j2)]
+					last = None
+					continue
+				else:
+					ops += [(last.o, last.i1, last.i2, last.j1, last.j2)]
+			last = op
+		if last:
+			ops += [(last.o, last.i1, last.i2, last.j1, last.j2)]
+		return ops
+	
+	def get_diff(self):
+		return [(op.o, str(op)) for op in self.all()]
+	
 	def all(self, t = None):
 		next = list(self.ops)
 		while len(next):
@@ -85,24 +120,32 @@ class SmartDifferencer(object):
 	def check(self):
 		assert str(self) == self.b
 	
-	def get_biggest_insertions(self):
+	def _get_biggest_insertions(self):
 		return [s[1] for s in sorted([(op.size, op) for op in self.all('insert')])]
 	
-	def do_move(self, insert, delete, match):
+	def _do_move(self, insert, delete, match):
 		insert_before = insert[:match.a]
-		move = delete[match.b:match.b + match.size].create_move()
+		move = delete[match.b:match.b + match.size].create_move(insert)
 		insert_after = insert[match.a + match.size:]
-		insert.children = [insert_before, move, insert_after]
+		insert.children = filter(lambda x: len(x) > 0, [insert_before, move, insert_after])
 		
 		delete_before = delete[:match.b]
-		#note: middle bit of the delete is simply removed to stop "moving twice"
+		delete_middle = delete[match.b:match.b+match.size]
+		delete_middle.can_move = False
 		delete_after = delete[match.b+match.size:]
-		delete.children = [delete_before, delete_after]
+		delete.children = filter(lambda x: len(x) > 0, [delete_before, delete_middle, delete_after])
+		
+		#print "MOVE"
+		#print repr(insert), repr(delete), match
+		#print insert.children
+		#print delete.children
 
 	def bust_a_move(self, minSize = 1):
 		longest = None
-		for ins in self.get_biggest_insertions():
+		for ins in self._get_biggest_insertions():
 			for d in self.all('delete'):
+				if not d.can_move:
+					continue
 				sm = difflib.SequenceMatcher(None, str(ins), str(d))
 				match = sm.find_longest_match(0, len(ins)-1, 0, len(d)-1)
 				#print repr(ins), repr(d)
@@ -112,7 +155,7 @@ class SmartDifferencer(object):
 					longest = (match, d)
 		
 			if longest:
-				self.do_move(ins, longest[1], longest[0])
+				self._do_move(ins, longest[1], longest[0])
 				return True
 		return False
 
@@ -123,8 +166,15 @@ if __name__ == '__main__':
 	
 	d = SmartDifferencer(A, B)
 	print repr(d)
+	print d.get_diff()
 	print d
 	d.check()
+	with_move = d.get_opcodes()
+	regular = difflib.SequenceMatcher(None, A, B).get_opcodes()
+	
+	from itertools import izip_longest
+	for x, y in izip_longest(with_move, regular):
+		print x, y
 
 
 
