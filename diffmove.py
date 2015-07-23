@@ -1,54 +1,6 @@
-#!/usr/bin/python
+#! /usr/bin/env python2
 
-import re
 import difflib
-import Levenshtein
-
-def differences_ops(a, b):
-	print "diff", repr(a), repr(b)
-	sm = difflib.SequenceMatcher(None, a, b)
-	ops = [((i, 0),) + t for i, t in enumerate(sm.get_opcodes())]
-	builds = [op for op in ops if op[1] == 'equal']
-	inserts = [op for op in ops if op[1] in ('insert', 'replace')]
-	deletes = [op for op in ops if op[1] in ('delete', 'replace')]
-	moves = []
-	for build in builds:
-		build_text = b[build[4]:build[5]]
-		#print build[0], repr(build_text)
-	for insert in inserts:
-		#if insert[5] - insert[4] < 10:
-		#	continue
-		insert_text = b[insert[4]:insert[5]]
-		mops = []
-		for delete in deletes:
-			#if delete[3] - delete[2] < 10:
-			#	continue
-			delete_text = a[delete[2]:delete[3]]
-			#print repr(delete_text), repr(insert_text)
-			d = differences_ops(delete_text, insert_text)
-			
-			#convert sub-operations to globals
-			print "before", d
-			d = [((insert[0][0], i[0]), op.replace('equal', 'move'), delete[2] + i1, delete[2] + i2, insert[4] + j1, insert[4] + j2) for i, op, i1, i2, j1, j2 in d]
-			print "after", d
-			mops += [(len(d), d)]
-		
-		print "#"*4, repr(insert_text), "mops", mops
-		moves += min(mops)[1]
-	print "builds", builds
-	print "moves", moves
-	r = [((i, 0),) + t[1:] for i, t in enumerate(sorted(builds + moves))]
-	print "r", r
-	return r
-
-def differences_recursive(a, b):
-	ops = differences_ops(a, b)
-	
-	for o in ops:
-		print o[1], a[o[2]:o[3]], b[o[4]:o[5]]
-	
-	return ""
-
 
 class DiffOp(object):
 	def __init__(self, t, a, b):
@@ -103,7 +55,6 @@ class SmartDifferencer(object):
 	
 	def get_codes(self, a, b):
 		ops = difflib.SequenceMatcher(None, a, b).get_opcodes()
-		#ops = Levenshtein.opcodes(a, b)
 		r = []
 		for op in ops:
 			if op[0] == 'replace':
@@ -144,6 +95,7 @@ class SmartDifferencer(object):
 		insert.children = [insert_before, move, insert_after]
 		
 		delete_before = delete[:match.b]
+		#note: middle bit of the delete is simply removed to stop "moving twice"
 		delete_after = delete[match.b+match.size:]
 		delete.children = [delete_before, delete_after]
 
