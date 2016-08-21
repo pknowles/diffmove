@@ -54,7 +54,7 @@ class SmartDifferencer(object):
 
 	"""
 
-	def __init__(self, a, b, ops=None, max_moves=100, min_move_length=10):
+	def __init__(self, a, b, ops=None, max_moves=100, min_move_length=5, min_equal_size=5):
 		self.a = a
 		self.b = b
 		self.max_moves = max_moves
@@ -67,14 +67,44 @@ class SmartDifferencer(object):
 				m = DiffOp.long_ops.__getitem__
 			self.ops = self._create_diffops(self.a, self.b, ops, m)
 		else:
-			ops = difflib.SequenceMatcher(None, a, b).get_opcodes()
+			is_junk = lambda s: len(s) < min_equal_size
+			ops = difflib.SequenceMatcher(is_junk, a, b).get_opcodes()
 			self.ops = self._create_diffops(self.a, self.b, ops, m)
+
+			#print self.ops
+
+			#self._filter_small(min_equal_size)
+			#self._merge_adjacent('delete')
+			#self._merge_adjacent('insert')
 
 			canary = self.max_moves
 			while self.replace_insert_with_move(self.min_move_length):
 				canary -= 1
 				if canary < 0:
 					break
+
+			# flatten the tree of ops
+			#self.ops = list(self.all())
+
+			#self._merge_adjacent('delete')
+
+	def _filter_small(self, size):
+		for op in self.ops:
+			if op.o == 'equal' and len(op) < size:
+				op.o = 'insert'
+				op.i1 = op.i2
+
+	def _merge_adjacent(self, op):
+		i = 1
+		while i < len(self.ops):
+			if self.ops[i-1].o == op and self.ops[i].o == op:
+				if op == 'insert':
+					self.ops[i-1].j2 = self.ops[i].j2
+				else:
+					self.ops[i-1].i2 = self.ops[i].i2
+				del self.ops[i]
+			else:
+				i += 1
 
 	def _create_diffops(self, a, b, ops, name_map):
 		r = []
