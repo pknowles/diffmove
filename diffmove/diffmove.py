@@ -54,9 +54,11 @@ class SmartDifferencer(object):
 
 	"""
 
-	def __init__(self, a, b, ops=None):
+	def __init__(self, a, b, ops=None, max_moves=100, min_move_length=10):
 		self.a = a
 		self.b = b
+		self.max_moves = max_moves
+		self.min_move_length = min_move_length
 
 		m = lambda x: x
 
@@ -68,8 +70,8 @@ class SmartDifferencer(object):
 			ops = difflib.SequenceMatcher(None, a, b).get_opcodes()
 			self.ops = self._create_diffops(self.a, self.b, ops, m)
 
-			canary = 100
-			while self.bust_a_move(10):
+			canary = self.max_moves
+			while self.replace_insert_with_move(self.min_move_length):
 				canary -= 1
 				if canary < 0:
 					break
@@ -156,16 +158,16 @@ class SmartDifferencer(object):
 		#print insert.children
 		#print delete.children
 
-	def bust_a_move(self, minSize = 1):
+	def replace_insert_with_move(self, min_size = 1):
 		longest = None
 		for ins in self._get_biggest_insertions():
 			for d in self.all('delete'):
 				if not d.can_move:
 					continue
 				sm = difflib.SequenceMatcher(None, unicode(ins), unicode(d))
-				match = sm.find_longest_match(0, len(ins)-1, 0, len(d)-1)
+				match = sm.find_longest_match(0, len(ins), 0, len(d))
 				#print repr(ins), repr(d)
-				if not match or match.size < minSize:
+				if not match or match.size < min_size:
 					continue
 				if not longest or longest[0].size < match.size:
 					longest = (match, d)
