@@ -181,7 +181,7 @@ class SmartDifferencer(object):
 		assert str(self) == self.b
 
 	def _get_biggest_insertions(self):
-		return [s[1] for s in sorted([(op.size, op) for op in self.all('insert')])]
+		return [s[1] for s in sorted([(op.size, op) for op in self.all('insert')], key=lambda x: x[0])]
 
 	def _do_move(self, insert, delete, match):
 		insert_before = insert[:match.a]
