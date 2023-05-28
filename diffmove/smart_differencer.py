@@ -4,7 +4,7 @@ import difflib
 
 class DiffOp(object):
 	short_ops = {'equal':'=','delete':'-','insert':'+','move':'<','replace':'x'}
-	long_ops = dict((v, k) for k, v in short_ops.items())
+	long_ops = dict((v, k) for k, v in list(short_ops.items()))
 	def __init__(self, t, a, b):
 		self.o, self.i1, self.i2, self.j1, self.j2 = t
 		self.size = self.j2 - self.j1 if self.o in ('insert', 'move') else self.i2 - self.i1
@@ -31,7 +31,7 @@ class DiffOp(object):
 
 	def __getitem__(self, i):
 		if isinstance(i, slice):
-			assert self.o is not 'move'
+			assert self.o != 'move'
 			assert i.step is None
 			i = i.indices(self.size)
 			if self.o == 'insert':
@@ -136,7 +136,7 @@ class SmartDifferencer(object):
 		r = ''
 		for op in self.all():
 			if op.o != 'delete':
-				r += unicode(op)
+				r += str(op)
 		return r
 
 	def __repr__(self):
@@ -166,7 +166,7 @@ class SmartDifferencer(object):
 		return ops
 
 	def get_diff(self):
-		return [(op.o, unicode(op)) for op in self.all()]
+		return [(op.o, str(op)) for op in self.all()]
 
 	def all(self, t = None):
 		next = list(self.ops)
@@ -178,7 +178,7 @@ class SmartDifferencer(object):
 				yield op
 
 	def check(self):
-		assert unicode(self) == self.b
+		assert str(self) == self.b
 
 	def _get_biggest_insertions(self):
 		return [s[1] for s in sorted([(op.size, op) for op in self.all('insert')])]
@@ -187,13 +187,13 @@ class SmartDifferencer(object):
 		insert_before = insert[:match.a]
 		move = delete[match.b:match.b + match.size].create_move(insert)
 		insert_after = insert[match.a + match.size:]
-		insert.children = filter(lambda x: len(x) > 0, [insert_before, move, insert_after])
+		insert.children = [x for x in [insert_before, move, insert_after] if len(x) > 0]
 
 		delete_before = delete[:match.b]
 		delete_middle = delete[match.b:match.b+match.size]
 		delete_middle.can_move = False
 		delete_after = delete[match.b+match.size:]
-		delete.children = filter(lambda x: len(x) > 0, [delete_before, delete_middle, delete_after])
+		delete.children = [x for x in [delete_before, delete_middle, delete_after] if len(x) > 0]
 
 		#print "MOVE"
 		#print repr(insert), repr(delete), match
@@ -224,13 +224,13 @@ if __name__ == '__main__':
 	B = "Legend (in order): , inserted text, block move mark, single chaacter changes, highlighted moved block and block mark, and ambiguous insertion aligned to line."
 
 	d = SmartDifferencer(A, B)
-	print repr(d)
-	print d.get_diff()
-	print d
+	print(repr(d))
+	print(d.get_diff())
+	print(d)
 	d.check()
 	with_move = d.get_opcodes()
 	regular = difflib.SequenceMatcher(None, A, B).get_opcodes()
 
-	from itertools import izip_longest
-	for x, y in izip_longest(with_move, regular):
-		print x, y
+	from itertools import zip_longest
+	for x, y in zip_longest(with_move, regular):
+		print(x, y)
